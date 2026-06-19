@@ -2,90 +2,143 @@ import streamlit as st
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
 
-st.set_page_config(
-    page_title="Optimización Lineal",
-    page_icon="📈",
-    layout="centered"
+st.title("⚡ Optimización de Distribución de Energía")
+
+st.write(
+    "Modificá los parámetros y calculá la distribución óptima."
 )
 
-st.title("📈 Optimizador de Programación Lineal")
+# ============================
+# ENTRADAS DEL USUARIO
+# ============================
 
-st.markdown("""
-### Problema
-
-Maximizar:
-
-**F = 25x + 50y**
-
-Sujeto a:
-
-- x + y ≤ 90
-- 4x + 6y ≥ 390
-- 15x + 40y ≤ 2000
-- x, y ≥ 0
-""")
-
-tipo_variables = st.radio(
-    "Tipo de variables",
-    ["Continuas", "Enteras"]
+energia_total = st.number_input(
+    "Energía disponible",
+    min_value=0,
+    value=1200
 )
 
-if st.button("Resolver problema"):
+st.subheader("Rendimiento por unidad")
 
-    # Función objetivo (negativa porque milp minimiza)
-    c = [-25, -50]
+rend_P = st.number_input(
+    "Procesamiento (P)",
+    value=10
+)
 
-    # Matriz de restricciones
-    A = [
-        [1, 1],
-        [4, 6],
-        [15, 40]
+rend_C = st.number_input(
+    "Comunicaciones (C)",
+    value=8
+)
+
+rend_A = st.number_input(
+    "Almacenamiento (A)",
+    value=6
+)
+
+st.subheader("Restricciones")
+
+min_P = st.number_input(
+    "Mínimo energía P",
+    value=250
+)
+
+min_C = st.number_input(
+    "Mínimo energía C",
+    value=200
+)
+
+min_A = st.number_input(
+    "Mínimo energía A",
+    value=150
+)
+
+max_P = st.number_input(
+    "Máximo energía P",
+    value=600
+)
+
+relacion = st.slider(
+    "C debe ser al menos (%) de P",
+    min_value=0,
+    max_value=100,
+    value=40
+)
+
+factor = relacion / 100
+
+
+# ============================
+# BOTÓN CALCULAR
+# ============================
+
+if st.button("Calcular distribución"):
+
+    c = [
+        -rend_P,
+        -rend_C,
+        -rend_A
     ]
 
-    # Límites inferior y superior
-    bl = [-np.inf, 390, -np.inf]
-    bu = [90, np.inf, 2000]
+    A = [
+
+        # Energía total
+        [1, 1, 1],
+
+        # C ≥ factor * P
+        [factor, -1, 0]
+
+    ]
+
+    bl = [
+        -np.inf,
+        -np.inf
+    ]
+
+    bu = [
+        energia_total,
+        0
+    ]
 
     constraints = LinearConstraint(A, bl, bu)
 
     bounds = Bounds(
-        [0, 0],
-        [np.inf, np.inf]
+        [min_P, min_C, min_A],
+        [max_P, np.inf, np.inf]
     )
 
-    # 0 = continua, 1 = entera
-    integrality = [0, 0]
-
-    if tipo_variables == "Enteras":
-        integrality = [1, 1]
-
-    resultado = milp(
+    res = milp(
         c=c,
         constraints=constraints,
         bounds=bounds,
-        integrality=integrality
+        integrality=[0, 0, 0]
     )
 
-    if resultado.success:
+    st.subheader("Resultados")
 
-        st.success("Solución encontrada")
+    if res.success:
 
-        x = resultado.x[0]
-        y = resultado.x[1]
-        f = -resultado.fun
+        P = res.x[0]
+        C = res.x[1]
+        A = res.x[2]
 
-        col1, col2, col3 = st.columns(3)
+        st.success("Optimización completada")
 
-        col1.metric("x", f"{x:.2f}")
-        col2.metric("y", f"{y:.2f}")
-        col3.metric("F(x,y)", f"{f:.2f}")
+        st.metric(
+            "Rendimiento máximo",
+            round(-res.fun, 2)
+        )
 
-        st.subheader("Vector solución")
-        st.write(resultado.x)
+        st.write("### Distribución óptima")
 
-        st.subheader("Estado")
-        st.info(resultado.message)
+        st.write(f"Procesamiento (P): {P:.2f}")
+        st.write(f"Comunicaciones (C): {C:.2f}")
+        st.write(f"Almacenamiento (A): {A:.2f}")
+
+        st.bar_chart({
+            "Energía": [P, C, A]
+        })
 
     else:
-        st.error("No se encontró una solución factible.")
-        st.write(resultado.message)
+        st.error(
+            "No existe solución con esos parámetros."
+        )
