@@ -1,10 +1,58 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from scipy.optimize import milp, LinearConstraint, Bounds
+
 # ======================
-# EQUIPAMIENTO
+# CONFIG
 # ======================
 
-st.subheader("Equipamiento")
+st.set_page_config(
+    page_title="Consumo Energético",
+    layout="wide"
+)
 
-equipos_default = [
+st.title("⚡ Calculadora de Consumo Energético")
+
+st.caption(
+    "Ingresá los equipos del lugar y el cálculo se actualiza automáticamente."
+)
+
+# ======================
+# CONFIG GENERAL
+# ======================
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+
+    energia = st.number_input(
+        "Energía disponible (Wh)",
+        min_value=100,
+        value=12000
+    )
+
+with c2:
+
+    cantidad = st.number_input(
+        "Cantidad de equipos",
+        min_value=1,
+        value=6
+    )
+
+with c3:
+
+    st.metric(
+        "Actualización",
+        "Automática"
+    )
+
+# ======================
+# EQUIPOS PREDEFINIDOS
+# ======================
+
+equipos = [
 
 ("Heladera",150,24,10),
 ("Luces",80,8,8),
@@ -19,22 +67,28 @@ nombres=[]
 consumos=[]
 prioridades=[]
 
-for i in range(cantidad):
+# ======================
+# EQUIPAMIENTO
+# ======================
 
-    nombre_default = (
-        equipos_default[i][0]
-        if i < len(equipos_default)
-        else f"Aparato {i+1}"
-    )
+st.subheader("Equipamiento")
 
-    with st.expander(
-        f"⚙️ {nombre_default}",
-        expanded=False
-    ):
+columnas = st.columns(3)
 
-        c1, c2, c3 = st.columns(3)
+for i in range(int(cantidad)):
 
-        with c1:
+    with columnas[i % 3]:
+
+        nombre_default = (
+            equipos[i][0]
+            if i < len(equipos)
+            else f"Equipo {i+1}"
+        )
+
+        with st.expander(
+            f"⚙️ {nombre_default}",
+            expanded=False
+        ):
 
             nombre = st.text_input(
                 "Nombre",
@@ -44,66 +98,216 @@ for i in range(cantidad):
 
             cantidad_ap = st.number_input(
                 "Cantidad",
-                value=1,
                 min_value=1,
-                key=f"c{i}"
+                value=1,
+                key=f"cant{i}"
             )
 
-        with c2:
-
             watts = st.number_input(
-                "Consumo (W)",
+                "Consumo por hora (W)",
+                min_value=1,
                 value=(
-                    equipos_default[i][1]
-                    if i < len(equipos_default)
+                    equipos[i][1]
+                    if i < len(equipos)
                     else 100
                 ),
                 key=f"w{i}"
             )
 
-            horas = st.number_input(
-                "Horas uso",
-                value=(
-                    equipos_default[i][2]
-                    if i < len(equipos_default)
+            horas = st.slider(
+                "Horas de uso por día",
+                1,
+                24,
+                (
+                    equipos[i][2]
+                    if i < len(equipos)
                     else 8
                 ),
-                min_value=1,
-                max_value=24,
                 key=f"h{i}"
             )
-
-        with c3:
 
             prioridad = st.slider(
                 "Prioridad",
                 1,
                 10,
                 (
-                    equipos_default[i][3]
-                    if i < len(equipos_default)
+                    equipos[i][3]
+                    if i < len(equipos)
                     else 5
                 ),
                 key=f"p{i}"
             )
 
-            consumo_total = (
+            consumo = (
                 cantidad_ap
                 * watts
                 * horas
             )
 
             st.metric(
-                "Consumo",
-                f"{consumo_total:.0f} Wh"
+                "Consumo estimado",
+                f"{consumo:.0f} Wh"
             )
 
-        nombres.append(nombre)
+            nombres.append(nombre)
+            consumos.append(consumo)
+            prioridades.append(prioridad)
 
-        consumos.append(
-            consumo_total
+# ======================
+# OPTIMIZACIÓN
+# ======================
+
+if len(consumos) > 0:
+
+    try:
+
+        c = [
+            -x
+            for x
+            in prioridades
+        ]
+
+        A = [
+            consumos
+        ]
+
+        constraints = LinearConstraint(
+            A,
+            [-np.inf],
+            [energia]
         )
 
-        prioridades.append(
-            prioridad
+        bounds = Bounds(
+            [0]*len(consumos),
+            [1]*len(consumos)
+        )
+
+        res = milp(
+            c=c,
+            constraints=constraints,
+            bounds=bounds,
+            integrality=[1]*len(consumos)
+        )
+
+        st.divider()
+
+        if res.success:
+
+            activos = np.round(res.x)
+
+            energia_usada = sum(
+                e*a
+                for e,a
+                in zip(
+                    consumos,
+                    activos
+                )
+            )
+
+            r1, r2, r3 = st.columns(3)
+
+            with r1:
+
+                st.metric(
+                    "Energía usada",
+                    f"{energia_usada:.0f} Wh"
+                )
+
+            with r2:
+
+                st.metric(
+                    "Disponible",
+                    f"{energia-energia_usada:.0f} Wh"
+                )
+
+            with r3:
+
+                porcentaje = (
+                    energia_usada
+                    /
+                    energia
+                    *100
+                )
+
+                st.metric(
+                    "Uso",
+                    f"{porcentaje:.0f}%"
+                )
+
+            tabla = pd.DataFrame({
+
+                "Equipo":
+                nombres,
+
+                "Consumo (Wh)":
+                consumos,
+
+                "Estado":[
+
+                    "Encendido"
+                    if x
+                    else "Apagado"
+
+                    for x
+                    in activos
+                ]
+
+            })
+
+            st.subheader(
+                "Resultado"
+            )
+
+            st.dataframe(
+                tabla,
+                hide_index=True,
+                use_container_width=True
+            )
+
+            # ======================
+            # GRÁFICO
+            # ======================
+
+            graf = tabla.copy()
+
+            fig = px.line(
+
+                graf,
+
+                x="Equipo",
+
+                y="Consumo (Wh)",
+
+                markers=True
+
+            )
+
+            fig.update_layout(
+
+                height=320,
+
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=20,
+                    b=10
+                )
+
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        else:
+
+            st.error(
+                "La energía disponible no alcanza."
+            )
+
+    except Exception as e:
+
+        st.error(
+            f"Error: {e}"
         )
