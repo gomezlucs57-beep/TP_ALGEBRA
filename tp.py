@@ -1,226 +1,249 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
 from scipy.optimize import milp, LinearConstraint, Bounds
-import matplotlib.pyplot as plt
 
-# ==========================
-# CONFIGURACIÓN
-# ==========================
+# ==================
+# CONFIG
+# ==================
 
 st.set_page_config(
-    page_title="Distribución de Energía",
+    page_title="Consumo Energético",
     layout="centered"
 )
 
-st.title("⚡ Optimización de Distribución de Energía")
+# ==================
+# FONDO DINÁMICO
+# ==================
+
+def fondo(consumo):
+
+    rojo = int(255 * consumo)
+    verde = int(255 * (1 - consumo))
+
+    st.markdown(f"""
+    <style>
+
+    .stApp {{
+        background:
+        rgb(
+            {255-rojo},
+            {verde},
+            220
+        );
+
+        transition:1s;
+    }}
+
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ==================
+# TÍTULO
+# ==================
+
+st.title("⚡ Consumo de Energía por Aparatos")
 
 st.caption(
-    "Ingresá los parámetros y el sistema calculará automáticamente la mejor distribución."
+    "Ingresá los aparatos del lugar y el sistema calcula automáticamente."
 )
 
-# ==========================
-# ENERGÍA TOTAL
-# ==========================
-
-energia_total = st.number_input(
-    "Energía disponible",
-    min_value=0,
-    value=1200,
-    help="Cantidad total de energía para repartir."
+energia = st.number_input(
+    "Energía disponible (Wh)",
+    value=12000
 )
 
-# ==========================
-# RENDIMIENTO
-# ==========================
+cantidad = st.number_input(
+    "Cantidad de aparatos",
+    min_value=1,
+    value=5
+)
 
-st.subheader("Rendimiento por unidad de energía")
+# ==================
+# APARATOS
+# ==================
 
-c1, c2, c3 = st.columns(3)
+ejemplos = [
 
-with c1:
-    rendimiento_procesamiento = st.number_input(
-        "Procesamiento de Datos",
-        value=10
-    )
+    ["Heladera",150,24,10],
+    ["Luces",80,8,8],
+    ["Microondas",1200,1,6],
+    ["Televisor",120,5,7],
+    ["Aire acondicionado",1500,6,9]
 
-with c2:
-    rendimiento_comunicaciones = st.number_input(
-        "Comunicaciones",
-        value=8
-    )
+]
 
-with c3:
-    rendimiento_almacenamiento = st.number_input(
-        "Almacenamiento",
-        value=6
-    )
+nombres=[]
+consumos=[]
+prioridades=[]
 
-# ==========================
-# RESTRICCIONES
-# ==========================
+st.subheader("Equipamiento")
 
-with st.expander("Configuración avanzada"):
+for i in range(cantidad):
 
-    st.markdown("### Energía mínima requerida")
+    with st.expander(
+        f"Aparato {i+1}",
+        expanded=i < 3
+    ):
 
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        min_procesamiento = st.number_input(
-            "Procesamiento",
-            value=250
+        nombre = st.text_input(
+            "Nombre",
+            value=ejemplos[i][0]
+            if i < len(ejemplos)
+            else f"Aparato {i+1}"
         )
 
-    with c2:
-        min_comunicaciones = st.number_input(
-            "Comunicaciones",
-            value=200
+        cantidad_ap = st.number_input(
+            "Cantidad",
+            value=1,
+            key=f"cant{i}"
         )
 
-    with c3:
-        min_almacenamiento = st.number_input(
-            "Almacenamiento",
-            value=150
+        watts = st.number_input(
+            "Consumo (W)",
+            value=ejemplos[i][1]
+            if i < len(ejemplos)
+            else 100,
+            key=f"w{i}"
         )
 
-    max_procesamiento = st.number_input(
-        "Máximo permitido para Procesamiento",
-        value=600
-    )
-
-    porcentaje = st.slider(
-        "Comunicaciones debe recibir al menos este porcentaje respecto a Procesamiento",
-        0,
-        100,
-        40
-    )
-
-factor = porcentaje / 100
-
-
-# ==========================
-# CÁLCULO
-# ==========================
-
-if st.button("Calcular distribución óptima", use_container_width=True):
-
-    c = [
-        -rendimiento_procesamiento,
-        -rendimiento_comunicaciones,
-        -rendimiento_almacenamiento
-    ]
-
-    matriz = [
-
-        [1, 1, 1],
-        [factor, -1, 0]
-
-    ]
-
-    bl = [
-        -np.inf,
-        -np.inf
-    ]
-
-    bu = [
-        energia_total,
-        0
-    ]
-
-    constraints = LinearConstraint(
-        matriz,
-        bl,
-        bu
-    )
-
-    bounds = Bounds(
-        [
-            min_procesamiento,
-            min_comunicaciones,
-            min_almacenamiento
-        ],
-        [
-            max_procesamiento,
-            np.inf,
-            np.inf
-        ]
-    )
-
-    resultado = milp(
-        c=c,
-        constraints=constraints,
-        bounds=bounds,
-        integrality=[0, 0, 0]
-    )
-
-    if resultado.success:
-
-        procesamiento = resultado.x[0]
-        comunicaciones = resultado.x[1]
-        almacenamiento = resultado.x[2]
-
-        st.success("Distribución calculada")
-
-        st.metric(
-            "Rendimiento máximo obtenido",
-            f"{-resultado.fun:.0f}"
+        horas = st.slider(
+            "Horas de uso",
+            1,
+            24,
+            ejemplos[i][2]
+            if i < len(ejemplos)
+            else 8,
+            key=f"h{i}"
         )
 
-        st.subheader("Asignación recomendada")
-
-        tabla = pd.DataFrame({
-            "Subsistema": [
-                "Procesamiento de Datos",
-                "Comunicaciones",
-                "Almacenamiento"
-            ],
-            "Energía Asignada": [
-                round(procesamiento),
-                round(comunicaciones),
-                round(almacenamiento)
-            ]
-        })
-
-        st.dataframe(
-            tabla,
-            hide_index=True,
-            use_container_width=True
+        prioridad = st.slider(
+            "Importancia",
+            1,
+            10,
+            ejemplos[i][3]
+            if i < len(ejemplos)
+            else 5,
+            key=f"p{i}"
         )
 
-        # GRÁFICO MÁS SIMPLE
+        energia_ap = cantidad_ap * watts * horas
 
-        fig, ax = plt.subplots(
-            figsize=(8, 3)
-        )
+        nombres.append(nombre)
+        consumos.append(energia_ap)
 
-        nombres = [
-            "Procesamiento",
-            "Comunicaciones",
-            "Almacenamiento"
+        prioridades.append(prioridad)
+
+# ==================
+# OPTIMIZACIÓN
+# ==================
+
+c = [-p for p in prioridades]
+
+A = [consumos]
+
+constraints = LinearConstraint(
+    A,
+    [-np.inf],
+    [energia]
+)
+
+bounds = Bounds(
+    [0]*cantidad,
+    [1]*cantidad
+)
+
+res = milp(
+    c=c,
+    constraints=constraints,
+    bounds=bounds,
+    integrality=[1]*cantidad
+)
+
+# ==================
+# RESULTADO
+# ==================
+
+if res.success:
+
+    activos = np.round(res.x)
+
+    usado = sum(
+        c*v
+        for c,v
+        in zip(consumos,activos)
+    )
+
+    fondo(
+        usado/energia
+    )
+
+    tabla = pd.DataFrame({
+
+        "Aparato": nombres,
+
+        "Consumo": consumos,
+
+        "Activo": [
+            "Sí"
+            if x
+            else "No"
+            for x in activos
         ]
 
-        valores = [
-            procesamiento,
-            comunicaciones,
-            almacenamiento
-        ]
+    })
 
-        ax.barh(
-            nombres,
-            valores
-        )
+    st.metric(
+        "Energía utilizada",
+        f"{usado:.0f} Wh"
+    )
 
-        ax.set_xlabel(
-            "Unidades de energía"
-        )
+    st.metric(
+        "Disponibilidad",
+        f"{100*(1-usado/energia):.0f}%"
+    )
 
-        plt.tight_layout()
+    st.dataframe(
+        tabla,
+        hide_index=True,
+        use_container_width=True
+    )
 
-        st.pyplot(fig)
+    # GRÁFICO PUNTO A PUNTO
 
-    else:
+    graf = tabla.copy()
 
-        st.error(
-            "No existe una solución válida con esos parámetros."
-        )
+    graf["Consumo"] = graf["Consumo"].astype(float)
+
+    fig = px.line(
+
+        graf,
+
+        x="Aparato",
+
+        y="Consumo",
+
+        markers=True
+
+    )
+
+    fig.update_layout(
+
+        height=350,
+
+        transition_duration=600
+
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+else:
+
+    st.error(
+        "La energía disponible no alcanza."
+    )
