@@ -4,109 +4,114 @@ import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
 import matplotlib.pyplot as plt
 
-# ======================
-# CONFIG PÁGINA
-# ======================
+# ==========================
+# CONFIGURACIÓN
+# ==========================
 
 st.set_page_config(
-    page_title="Distribución Energía",
+    page_title="Distribución de Energía",
     layout="centered"
 )
 
-st.title("⚡ Distribución de Energía")
+st.title("⚡ Optimización de Distribución de Energía")
 
-# ======================
-# ENTRADAS COMPACTAS
-# ======================
+st.caption(
+    "Ingresá los parámetros y el sistema calculará automáticamente la mejor distribución."
+)
 
-col1, col2 = st.columns(2)
+# ==========================
+# ENERGÍA TOTAL
+# ==========================
 
-with col1:
-    energia_total = st.number_input(
-        "Energía total",
-        value=1200,
-        step=50
+energia_total = st.number_input(
+    "Energía disponible",
+    min_value=0,
+    value=1200,
+    help="Cantidad total de energía para repartir."
+)
+
+# ==========================
+# RENDIMIENTO
+# ==========================
+
+st.subheader("Rendimiento por unidad de energía")
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    rendimiento_procesamiento = st.number_input(
+        "Procesamiento de Datos",
+        value=10
     )
 
-with col2:
-    relacion = st.slider(
-        "C mínimo respecto a P (%)",
+with c2:
+    rendimiento_comunicaciones = st.number_input(
+        "Comunicaciones",
+        value=8
+    )
+
+with c3:
+    rendimiento_almacenamiento = st.number_input(
+        "Almacenamiento",
+        value=6
+    )
+
+# ==========================
+# RESTRICCIONES
+# ==========================
+
+with st.expander("Configuración avanzada"):
+
+    st.markdown("### Energía mínima requerida")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        min_procesamiento = st.number_input(
+            "Procesamiento",
+            value=250
+        )
+
+    with c2:
+        min_comunicaciones = st.number_input(
+            "Comunicaciones",
+            value=200
+        )
+
+    with c3:
+        min_almacenamiento = st.number_input(
+            "Almacenamiento",
+            value=150
+        )
+
+    max_procesamiento = st.number_input(
+        "Máximo permitido para Procesamiento",
+        value=600
+    )
+
+    porcentaje = st.slider(
+        "Comunicaciones debe recibir al menos este porcentaje respecto a Procesamiento",
         0,
         100,
         40
     )
 
-factor = relacion / 100
+factor = porcentaje / 100
 
 
-st.markdown("### Rendimiento")
+# ==========================
+# CÁLCULO
+# ==========================
 
-c1, c2, c3 = st.columns(3)
-
-with c1:
-    rend_P = st.number_input(
-        "P",
-        value=10
-    )
-
-with c2:
-    rend_C = st.number_input(
-        "C",
-        value=8
-    )
-
-with c3:
-    rend_A = st.number_input(
-        "A",
-        value=6
-    )
-
-# ======================
-# RESTRICCIONES OCULTAS
-# ======================
-
-with st.expander("Restricciones"):
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        min_P = st.number_input(
-            "Mín P",
-            value=250
-        )
-
-        min_C = st.number_input(
-            "Mín C",
-            value=200
-        )
-
-    with c2:
-        min_A = st.number_input(
-            "Mín A",
-            value=150
-        )
-
-        max_P = st.number_input(
-            "Máx P",
-            value=600
-        )
-
-# ======================
-# BOTÓN
-# ======================
-
-if st.button(
-    "Optimizar",
-    use_container_width=True
-):
+if st.button("Calcular distribución óptima", use_container_width=True):
 
     c = [
-        -rend_P,
-        -rend_C,
-        -rend_A
+        -rendimiento_procesamiento,
+        -rendimiento_comunicaciones,
+        -rendimiento_almacenamiento
     ]
 
-    A = [
+    matriz = [
 
         [1, 1, 1],
         [factor, -1, 0]
@@ -124,70 +129,90 @@ if st.button(
     ]
 
     constraints = LinearConstraint(
-        A,
+        matriz,
         bl,
         bu
     )
 
     bounds = Bounds(
-        [min_P, min_C, min_A],
-        [max_P, np.inf, np.inf]
+        [
+            min_procesamiento,
+            min_comunicaciones,
+            min_almacenamiento
+        ],
+        [
+            max_procesamiento,
+            np.inf,
+            np.inf
+        ]
     )
 
-    res = milp(
+    resultado = milp(
         c=c,
         constraints=constraints,
         bounds=bounds,
         integrality=[0, 0, 0]
     )
 
-    if res.success:
+    if resultado.success:
 
-        P, C, A = res.x
+        procesamiento = resultado.x[0]
+        comunicaciones = resultado.x[1]
+        almacenamiento = resultado.x[2]
 
-        st.success("Optimización completada")
+        st.success("Distribución calculada")
 
         st.metric(
-            "Rendimiento Máximo",
-            f"{-res.fun:.0f}"
+            "Rendimiento máximo obtenido",
+            f"{-resultado.fun:.0f}"
         )
 
-        st.markdown("### Distribución")
+        st.subheader("Asignación recomendada")
 
-        r1, r2, r3 = st.columns(3)
+        tabla = pd.DataFrame({
+            "Subsistema": [
+                "Procesamiento de Datos",
+                "Comunicaciones",
+                "Almacenamiento"
+            ],
+            "Energía Asignada": [
+                round(procesamiento),
+                round(comunicaciones),
+                round(almacenamiento)
+            ]
+        })
 
-        r1.metric("P", f"{P:.0f}")
-        r2.metric("C", f"{C:.0f}")
-        r3.metric("A", f"{A:.0f}")
+        st.dataframe(
+            tabla,
+            hide_index=True,
+            use_container_width=True
+        )
 
-        # ======================
-        # GRÁFICO CORREGIDO
-        # ======================
+        # GRÁFICO MÁS SIMPLE
 
         fig, ax = plt.subplots(
-            figsize=(6, 3)
+            figsize=(8, 3)
         )
 
-        categorias = [
+        nombres = [
             "Procesamiento",
-            "Comunicación",
+            "Comunicaciones",
             "Almacenamiento"
         ]
 
-        valores = [P, C, A]
+        valores = [
+            procesamiento,
+            comunicaciones,
+            almacenamiento
+        ]
 
-        ax.bar(
-            categorias,
+        ax.barh(
+            nombres,
             valores
         )
 
-        # enderezar números
-        plt.xticks(
-            rotation=0
-        )
-
-        ax.set_ylabel(
-            "Unidades"
+        ax.set_xlabel(
+            "Unidades de energía"
         )
 
         plt.tight_layout()
@@ -197,5 +222,5 @@ if st.button(
     else:
 
         st.error(
-            "No existe solución."
+            "No existe una solución válida con esos parámetros."
         )
