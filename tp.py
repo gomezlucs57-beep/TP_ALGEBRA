@@ -16,16 +16,16 @@ st.set_page_config(
 st.title("⚡ Calculadora de Consumo Energético")
 
 st.caption(
-    "Ingresá los equipos del lugar y el cálculo se actualiza automáticamente."
+    "Ingresá los equipos del lugar y el sistema calcula automáticamente."
 )
 
 # ======================
 # CONFIG GENERAL
 # ======================
 
-c1, c2, c3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
-with c1:
+with col1:
 
     energia = st.number_input(
         "Energía disponible (Wh)",
@@ -33,23 +33,24 @@ with c1:
         value=12000
     )
 
-with c2:
+with col2:
 
     cantidad = st.number_input(
         "Cantidad de equipos",
         min_value=1,
-        value=6
+        value=6,
+        step=1
     )
 
-with c3:
+with col3:
 
     st.metric(
-        "Actualización",
-        "Automática"
+        "Cálculo",
+        "Automático"
     )
 
 # ======================
-# EQUIPOS PREDEFINIDOS
+# DATOS BASE
 # ======================
 
 equipos = [
@@ -115,7 +116,7 @@ for i in range(int(cantidad)):
             )
 
             horas = st.slider(
-                "Horas de uso por día",
+                "Horas de uso",
                 1,
                 24,
                 (
@@ -144,20 +145,27 @@ for i in range(int(cantidad)):
                 * horas
             )
 
-            st.metric(
-                "Consumo estimado",
-                f"{consumo:.0f} Wh"
+            st.caption(
+                f"Consumo estimado: {consumo:.0f} Wh"
             )
 
-            nombres.append(nombre)
-            consumos.append(consumo)
-            prioridades.append(prioridad)
+            nombres.append(
+                nombre.strip()
+            )
+
+            consumos.append(
+                consumo
+            )
+
+            prioridades.append(
+                prioridad
+            )
 
 # ======================
 # OPTIMIZACIÓN
 # ======================
 
-if len(consumos) > 0:
+if len(consumos):
 
     try:
 
@@ -183,55 +191,59 @@ if len(consumos) > 0:
         )
 
         res = milp(
+
             c=c,
+
             constraints=constraints,
+
             bounds=bounds,
+
             integrality=[1]*len(consumos)
+
         )
 
         st.divider()
 
         if res.success:
 
-            activos = np.round(res.x)
+            activos = np.round(
+                res.x
+            )
 
             energia_usada = sum(
-                e*a
-                for e,a
+
+                c*a
+
+                for c,a
+
                 in zip(
                     consumos,
                     activos
                 )
+
             )
 
-            r1, r2, r3 = st.columns(3)
+            m1, m2, m3 = st.columns(3)
 
-            with r1:
+            with m1:
 
                 st.metric(
-                    "Energía usada",
+                    "Usada",
                     f"{energia_usada:.0f} Wh"
                 )
 
-            with r2:
+            with m2:
 
                 st.metric(
                     "Disponible",
                     f"{energia-energia_usada:.0f} Wh"
                 )
 
-            with r3:
-
-                porcentaje = (
-                    energia_usada
-                    /
-                    energia
-                    *100
-                )
+            with m3:
 
                 st.metric(
                     "Uso",
-                    f"{porcentaje:.0f}%"
+                    f"{energia_usada/energia:.0%}"
                 )
 
             tabla = pd.DataFrame({
@@ -245,34 +257,52 @@ if len(consumos) > 0:
                 "Estado":[
 
                     "Encendido"
+
                     if x
+
                     else "Apagado"
 
                     for x
+
                     in activos
+
                 ]
 
             })
+
+            # eliminar filas vacías
+            tabla = tabla[
+                tabla["Equipo"]
+                .astype(str)
+                .str.strip()
+                != ""
+            ]
+
+            tabla = tabla.reset_index(
+                drop=True
+            )
 
             st.subheader(
                 "Resultado"
             )
 
             st.dataframe(
+
                 tabla,
+
                 hide_index=True,
+
                 use_container_width=True
+
             )
 
             # ======================
             # GRÁFICO
             # ======================
 
-            graf = tabla.copy()
-
             fig = px.line(
 
-                graf,
+                tabla,
 
                 x="Equipo",
 
@@ -291,19 +321,26 @@ if len(consumos) > 0:
                     r=10,
                     t=20,
                     b=10
+                ),
+
+                xaxis=dict(
+                    categoryorder="array"
                 )
 
             )
 
             st.plotly_chart(
+
                 fig,
+
                 use_container_width=True
+
             )
 
         else:
 
-            st.error(
-                "La energía disponible no alcanza."
+            st.warning(
+                "No existe una combinación válida."
             )
 
     except Exception as e:
