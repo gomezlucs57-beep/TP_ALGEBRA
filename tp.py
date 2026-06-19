@@ -4,6 +4,21 @@ import numpy as np
 import plotly.express as px
 from scipy.optimize import milp, LinearConstraint, Bounds
 
+from io import BytesIO
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer
+)
+
+from reportlab.lib import colors
+from reportlab.lib.styles import (
+    getSampleStyleSheet
+)
+
 # ======================
 # CONFIG
 # ======================
@@ -13,44 +28,43 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("⚡ Calculadora de Consumo Energético")
+st.title("⚡ Informe de Consumo Energético")
 
 st.caption(
-    "Ingresá los equipos del lugar y el sistema calcula automáticamente."
+    "Ingresá los equipos y el sistema calcula automáticamente."
 )
 
 # ======================
 # CONFIG GENERAL
 # ======================
 
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-with col1:
+with c1:
 
     energia = st.number_input(
         "Energía disponible (Wh)",
-        min_value=100,
-        value=12000
+        value=12000,
+        min_value=100
     )
 
-with col2:
+with c2:
 
     cantidad = st.number_input(
         "Cantidad de equipos",
-        min_value=1,
         value=6,
-        step=1
+        min_value=1
     )
 
-with col3:
+with c3:
 
     st.metric(
-        "Cálculo",
-        "Automático"
+        "Actualización",
+        "Automática"
     )
 
 # ======================
-# DATOS BASE
+# EQUIPOS
 # ======================
 
 equipos = [
@@ -68,75 +82,108 @@ nombres=[]
 consumos=[]
 prioridades=[]
 
-# ======================
-# EQUIPAMIENTO
-# ======================
+st.subheader(
+    "Equipamiento"
+)
 
-st.subheader("Equipamiento")
-
-columnas = st.columns(3)
+cols = st.columns(3)
 
 for i in range(int(cantidad)):
 
-    with columnas[i % 3]:
+    with cols[i % 3]:
 
-        nombre_default = (
+        nombre_base = (
+
             equipos[i][0]
+
             if i < len(equipos)
+
             else f"Equipo {i+1}"
+
         )
 
         with st.expander(
-            f"⚙️ {nombre_default}",
-            expanded=False
+            f"⚙️ {nombre_base}"
         ):
 
             nombre = st.text_input(
+
                 "Nombre",
-                value=nombre_default,
+
+                value=nombre_base,
+
                 key=f"n{i}"
+
             )
 
             cantidad_ap = st.number_input(
+
                 "Cantidad",
-                min_value=1,
+
                 value=1,
+
+                min_value=1,
+
                 key=f"cant{i}"
+
             )
 
             watts = st.number_input(
+
                 "Consumo por hora (W)",
-                min_value=1,
+
                 value=(
                     equipos[i][1]
+
                     if i < len(equipos)
+
                     else 100
                 ),
+
+                min_value=1,
+
                 key=f"w{i}"
+
             )
 
             horas = st.slider(
+
                 "Horas de uso",
+
                 1,
+
                 24,
+
                 (
                     equipos[i][2]
+
                     if i < len(equipos)
+
                     else 8
                 ),
+
                 key=f"h{i}"
+
             )
 
             prioridad = st.slider(
+
                 "Prioridad",
+
                 1,
+
                 10,
+
                 (
                     equipos[i][3]
+
                     if i < len(equipos)
+
                     else 5
                 ),
+
                 key=f"p{i}"
+
             )
 
             consumo = (
@@ -145,8 +192,9 @@ for i in range(int(cantidad)):
                 * horas
             )
 
-            st.caption(
-                f"Consumo estimado: {consumo:.0f} Wh"
+            st.metric(
+                "Consumo diario",
+                f"{consumo:.0f} Wh"
             )
 
             nombres.append(
@@ -165,29 +213,36 @@ for i in range(int(cantidad)):
 # OPTIMIZACIÓN
 # ======================
 
-if len(consumos):
+if consumos:
 
     try:
 
         c = [
-            -x
-            for x
-            in prioridades
-        ]
 
-        A = [
-            consumos
+            -x
+
+            for x
+
+            in prioridades
+
         ]
 
         constraints = LinearConstraint(
-            A,
+
+            [consumos],
+
             [-np.inf],
+
             [energia]
+
         )
 
         bounds = Bounds(
+
             [0]*len(consumos),
+
             [1]*len(consumos)
+
         )
 
         res = milp(
@@ -210,7 +265,7 @@ if len(consumos):
                 res.x
             )
 
-            energia_usada = sum(
+            usados = [
 
                 c*a
 
@@ -221,37 +276,18 @@ if len(consumos):
                     activos
                 )
 
+            ]
+
+            energia_usada = sum(
+                usados
             )
-
-            m1, m2, m3 = st.columns(3)
-
-            with m1:
-
-                st.metric(
-                    "Usada",
-                    f"{energia_usada:.0f} Wh"
-                )
-
-            with m2:
-
-                st.metric(
-                    "Disponible",
-                    f"{energia-energia_usada:.0f} Wh"
-                )
-
-            with m3:
-
-                st.metric(
-                    "Uso",
-                    f"{energia_usada/energia:.0%}"
-                )
 
             tabla = pd.DataFrame({
 
                 "Equipo":
                 nombres,
 
-                "Consumo (Wh)":
+                "Consumo Diario (Wh)":
                 consumos,
 
                 "Estado":[
@@ -270,11 +306,8 @@ if len(consumos):
 
             })
 
-            # eliminar filas vacías
             tabla = tabla[
                 tabla["Equipo"]
-                .astype(str)
-                .str.strip()
                 != ""
             ]
 
@@ -282,23 +315,52 @@ if len(consumos):
                 drop=True
             )
 
+            tabla[
+                "Consumo Mensual (Wh)"
+            ] = (
+                tabla[
+                    "Consumo Diario (Wh)"
+                ] * 30
+            )
+
+            m1,m2,m3=st.columns(3)
+
+            with m1:
+
+                st.metric(
+                    "Diario",
+                    f"{energia_usada:.0f} Wh"
+                )
+
+            with m2:
+
+                st.metric(
+                    "Mensual",
+                    f"{tabla['Consumo Mensual (Wh)'].sum():.0f} Wh"
+                )
+
+            with m3:
+
+                st.metric(
+                    "Uso",
+                    f"{energia_usada/energia:.0%}"
+                )
+
             st.subheader(
-                "Resultado"
+                "Informe"
             )
 
             st.dataframe(
 
                 tabla,
 
-                hide_index=True,
+                use_container_width=True,
 
-                use_container_width=True
+                hide_index=True
 
             )
 
-            # ======================
-            # GRÁFICO
-            # ======================
+            # gráfico
 
             fig = px.line(
 
@@ -306,45 +368,131 @@ if len(consumos):
 
                 x="Equipo",
 
-                y="Consumo (Wh)",
+                y="Consumo Diario (Wh)",
 
                 markers=True
 
             )
 
             fig.update_layout(
-
-                height=320,
-
-                margin=dict(
-                    l=10,
-                    r=10,
-                    t=20,
-                    b=10
-                ),
-
-                xaxis=dict(
-                    categoryorder="array"
-                )
-
+                height=300
             )
 
             st.plotly_chart(
-
                 fig,
-
                 use_container_width=True
+            )
+
+            # ======================
+            # PDF
+            # ======================
+
+            def crear_pdf(df):
+
+                buffer = BytesIO()
+
+                doc = SimpleDocTemplate(
+                    buffer
+                )
+
+                estilos = (
+                    getSampleStyleSheet()
+                )
+
+                contenido=[]
+
+                contenido.append(
+
+                    Paragraph(
+
+                        "Informe Mensual",
+
+                        estilos["Title"]
+
+                    )
+
+                )
+
+                contenido.append(
+                    Spacer(
+                        1,
+                        20
+                    )
+                )
+
+                datos = [
+
+                    list(
+                        df.columns
+                    )
+
+                ]
+
+                datos.extend(
+                    df.values.tolist()
+                )
+
+                tabla_pdf = Table(
+                    datos
+                )
+
+                tabla_pdf.setStyle(
+
+                    TableStyle([
+
+                        (
+                            "GRID",
+
+                            (0,0),
+
+                            (-1,-1),
+
+                            1,
+
+                            colors.black
+
+                        )
+
+                    ])
+
+                )
+
+                contenido.append(
+                    tabla_pdf
+                )
+
+                doc.build(
+                    contenido
+                )
+
+                buffer.seek(0)
+
+                return buffer
+
+            pdf = crear_pdf(
+                tabla
+            )
+
+            st.download_button(
+
+                "📄 Descargar PDF",
+
+                pdf,
+
+                file_name="reporte_consumo.pdf",
+
+                mime="application/pdf"
 
             )
 
         else:
 
             st.warning(
-                "No existe una combinación válida."
+                "No existe combinación válida."
             )
 
     except Exception as e:
 
         st.error(
-            f"Error: {e}"
+            str(e)
         )
