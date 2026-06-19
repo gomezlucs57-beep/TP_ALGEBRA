@@ -1,33 +1,42 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 from scipy.optimize import milp, LinearConstraint, Bounds
 
-from analytics import (
-    calcular_costos,
-    generar_historial
+from io import BytesIO
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer
 )
 
-from recommendations import (
-    generar_recomendaciones
+from reportlab.lib import colors
+from reportlab.lib.styles import (
+    getSampleStyleSheet
 )
 
-from pdf_report import (
-    generar_pdf
-)
+# ======================
+# CONFIG
+# ======================
 
 st.set_page_config(
-    page_title="Gestión Energética",
+    page_title="Consumo Energético",
     layout="wide"
 )
 
-st.title("⚡ Gestión Energética Inteligente")
+st.title("⚡ Informe de Consumo Energético")
 
-# --------------------
-# CONFIG
-# --------------------
+st.caption(
+    "Ingresá los equipos y el sistema calcula automáticamente."
+)
+
+# ======================
+# CONFIG GENERAL
+# ======================
 
 c1, c2, c3 = st.columns(3)
 
@@ -35,27 +44,28 @@ with c1:
 
     energia = st.number_input(
         "Energía disponible (Wh)",
-        value=12000
+        value=12000,
+        min_value=100
     )
 
 with c2:
 
-    precio = st.number_input(
-        "Precio kWh",
-        value=150.0
-    )
-
-with c3:
-
     cantidad = st.number_input(
-        "Cantidad equipos",
+        "Cantidad de equipos",
         value=6,
         min_value=1
     )
 
-# --------------------
+with c3:
+
+    st.metric(
+        "Actualización",
+        "Automática"
+    )
+
+# ======================
 # EQUIPOS
-# --------------------
+# ======================
 
 equipos = [
 
@@ -72,7 +82,9 @@ nombres=[]
 consumos=[]
 prioridades=[]
 
-st.subheader("Equipamiento")
+st.subheader(
+    "Equipamiento"
+)
 
 cols = st.columns(3)
 
@@ -80,70 +92,113 @@ for i in range(int(cantidad)):
 
     with cols[i % 3]:
 
-        base = (
-            equipos[i]
+        nombre_base = (
+
+            equipos[i][0]
+
             if i < len(equipos)
-            else (
-                f"Equipo {i+1}",
-                100,
-                8,
-                5
-            )
+
+            else f"Equipo {i+1}"
+
         )
 
         with st.expander(
-            f"⚙️ {base[0]}"
+            f"⚙️ {nombre_base}"
         ):
 
             nombre = st.text_input(
-                "Equipo",
-                value=base[0],
+
+                "Nombre",
+
+                value=nombre_base,
+
                 key=f"n{i}"
+
             )
 
             cantidad_ap = st.number_input(
+
                 "Cantidad",
-                1,
-                key=f"c{i}"
+
+                value=1,
+
+                min_value=1,
+
+                key=f"cant{i}"
+
             )
 
             watts = st.number_input(
-                "W",
-                value=base[1],
+
+                "Consumo por hora (W)",
+
+                value=(
+                    equipos[i][1]
+
+                    if i < len(equipos)
+
+                    else 100
+                ),
+
+                min_value=1,
+
                 key=f"w{i}"
+
             )
 
             horas = st.slider(
-                "Horas",
+
+                "Horas de uso",
+
                 1,
+
                 24,
-                base[2],
+
+                (
+                    equipos[i][2]
+
+                    if i < len(equipos)
+
+                    else 8
+                ),
+
                 key=f"h{i}"
+
             )
 
             prioridad = st.slider(
+
                 "Prioridad",
+
                 1,
+
                 10,
-                base[3],
+
+                (
+                    equipos[i][3]
+
+                    if i < len(equipos)
+
+                    else 5
+                ),
+
                 key=f"p{i}"
+
             )
 
             consumo = (
                 cantidad_ap
-                *
-                watts
-                *
-                horas
+                * watts
+                * horas
             )
 
             st.metric(
-                "Wh diarios",
-                f"{consumo}"
+                "Consumo diario",
+                f"{consumo:.0f} Wh"
             )
 
             nombres.append(
-                nombre
+                nombre.strip()
             )
 
             consumos.append(
@@ -154,838 +209,290 @@ for i in range(int(cantidad)):
                 prioridad
             )
 
-# --------------------
+# ======================
 # OPTIMIZACIÓN
-# --------------------
+# ======================
 
-c = [-x for x in prioridades]
+if consumos:
 
-constraints = LinearConstraint(
-    [consumos],
-    [-np.inf],
-    [energia]
-)
+    try:
 
-bounds = Bounds(
-    [0]*len(consumos),
-    [1]*len(consumos)
-)
+        c = [
 
-res = milp(
-    c=c,
-    constraints=constraints,
-    bounds=bounds,
-    integrality=[1]*len(consumos)
-)
-
-if res.success:
-
-    activos = np.round(
-        res.x
-    )
-
-    usados = [
-
-        e*a
-
-        for e,a
-
-        in zip(
-            consumos,
-            activos
-        )
-
-    ]
-
-    total = sum(
-        usados
-    )
-
-    tabla = pd.DataFrame({
-
-        "Equipo":
-        nombres,
-
-        "Consumo Diario":
-        consumos,
-
-        "Estado":[
-
-            "Activo"
-
-            if x
-
-            else "Apagado"
+            -x
 
             for x
 
-            in activos
+            in prioridades
 
         ]
 
-    })
+        constraints = LinearConstraint(
 
-    tabla = tabla[
-        tabla["Equipo"]
-        .str.strip()
-        != ""
-    ]
+            [consumos],
 
-    costo = calcular_costos(
-        total,
-        precio
-    )
+            [-np.inf],
 
-    st.divider()
-
-    a,b,c = st.columns(3)
-
-    a.metric(
-        "Diario",
-        costo["dia"]
-    )
-
-    b.metric(
-        "Mensual",
-        costo["mes"]
-    )
-
-    c.metric(
-        "Anual",
-        costo["anio"]
-    )
-
-    st.subheader(
-        "Resumen"
-    )
-
-    st.dataframe(
-        tabla,
-        use_container_width=True
-    )
-
-    fig = px.line(
-
-        tabla,
-
-        x="Equipo",
-
-        y="Consumo Diario",
-
-        markers=True
-
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    st.subheader(
-        "Historial"
-    )
-
-    hist = generar_historial(
-        total
-    )
-
-    st.line_chart(
-        hist
-    )
-
-    st.subheader(
-        "Recomendaciones"
-    )
-
-    for r in generar_recomendaciones(
-        tabla
-    ):
-
-        st.info(
-            r
-        )
-
-    pdf = generar_pdf(
-        tabla,
-        costo
-    )
-
-    st.download_button(
-
-        "📄 Descargar PDF",
-
-        pdf,
-
-        "reporte.pdf"
-
-    )
-```
-import pandas as pd
-import numpy as np
-
-
-# =========================
-# COSTOS
-# =========================
-
-def calcular_costos(
-    consumo_wh,
-    precio_kwh
-):
-
-    kwh = consumo_wh / 1000
-
-    diario = kwh * precio_kwh
-
-    mensual = diario * 30
-
-    anual = mensual * 12
-
-    return {
-
-        "dia":
-        f"${diario:,.0f}",
-
-        "mes":
-        f"${mensual:,.0f}",
-
-        "anio":
-        f"${anual:,.0f}"
-
-    }
-
-
-# =========================
-# HISTORIAL
-# =========================
-
-def generar_historial(
-    consumo_actual
-):
-
-    meses = [
-
-        "Enero",
-        "Febrero",
-        "Marzo",
-        "Abril",
-        "Mayo",
-        "Junio",
-
-        "Julio",
-        "Agosto",
-        "Septiembre",
-        "Octubre",
-        "Noviembre",
-        "Diciembre"
-
-    ]
-
-    np.random.seed(42)
-
-    variacion = np.random.uniform(
-        0.85,
-        1.15,
-        12
-    )
-
-    valores = [
-
-        consumo_actual
-        *
-        v
-
-        for v
-
-        in variacion
-
-    ]
-
-    historial = pd.DataFrame({
-
-        "Mes":
-        meses,
-
-        "Consumo":
-        valores
-
-    })
-
-    return historial
-
-
-# =========================
-# RESUMEN
-# =========================
-
-def obtener_resumen(
-    historial
-):
-
-    mayor = historial[
-        "Consumo"
-    ].max()
-
-    menor = historial[
-        "Consumo"
-    ].min()
-
-    promedio = historial[
-        "Consumo"
-    ].mean()
-
-    return {
-
-        "maximo":
-        round(
-            mayor
-        ),
-
-        "minimo":
-        round(
-            menor
-        ),
-
-        "promedio":
-        round(
-            promedio
-        )
-
-    }
-
-
-# =========================
-# COMPARACIÓN
-# =========================
-
-def variacion_mensual(
-    historial
-):
-
-    hist = historial.copy()
-
-    hist[
-        "Variación %"
-    ] = (
-
-        hist[
-            "Consumo"
-        ]
-
-        .pct_change()
-
-        *100
-
-    )
-
-    hist = hist.fillna(
-        0
-    )
-
-    return hist
-    import pandas as pd
-
-
-# ==========================
-# RECOMENDACIONES
-# ==========================
-
-def generar_recomendaciones(
-    tabla
-):
-
-    recomendaciones = []
-
-    if len(tabla) == 0:
-
-        return [
-            "No hay datos suficientes."
-        ]
-
-    consumo_col = "Consumo Diario"
-
-    # --------------------------
-    # Mayor consumidor
-    # --------------------------
-
-    mayor = tabla.loc[
-        tabla[
-            consumo_col
-        ].idxmax()
-    ]
-
-    recomendaciones.append(
-
-        (
-            f"Mayor consumo: "
-            f"{mayor['Equipo']} "
-            f"({mayor[consumo_col]:.0f} Wh/día)"
-        )
-
-    )
-
-    # --------------------------
-    # Uso elevado
-    # --------------------------
-
-    promedio = tabla[
-        consumo_col
-    ].mean()
-
-    altos = tabla[
-        tabla[
-            consumo_col
-        ]
-        >
-        promedio * 1.5
-    ]
-
-    if len(altos):
-
-        recomendaciones.append(
-
-            "Hay equipos con consumo elevado. "
-            "Evaluá reducir horas de uso."
+            [energia]
 
         )
 
-    # --------------------------
-    # Aire acondicionado
-    # --------------------------
+        bounds = Bounds(
 
-    aire = tabla[
+            [0]*len(consumos),
 
-        tabla[
-            "Equipo"
-        ]
-
-        .str.contains(
-            "aire",
-            case=False,
-            na=False
-        )
-
-    ]
-
-    if len(aire):
-
-        recomendaciones.append(
-
-            "Reducir 1–2 horas del aire "
-            "puede disminuir el consumo."
+            [1]*len(consumos)
 
         )
 
-    # --------------------------
-    # Heladera
-    # --------------------------
+        res = milp(
 
-    heladera = tabla[
+            c=c,
 
-        tabla[
-            "Equipo"
-        ]
+            constraints=constraints,
 
-        .str.contains(
-            "heladera",
-            case=False,
-            na=False
-        )
+            bounds=bounds,
 
-    ]
-
-    if len(heladera):
-
-        recomendaciones.append(
-
-            "Verificá temperatura y burletes "
-            "de la heladera."
+            integrality=[1]*len(consumos)
 
         )
 
-    # --------------------------
-    # Luces
-    # --------------------------
+        st.divider()
 
-    luces = tabla[
+        if res.success:
 
-        tabla[
-            "Equipo"
-        ]
-
-        .str.contains(
-            "luz",
-            case=False,
-            na=False
-        )
-
-    ]
-
-    if len(luces):
-
-        recomendaciones.append(
-
-            "Migrar a LED suele reducir "
-            "el consumo de iluminación."
-
-        )
-
-    # --------------------------
-    # Estado
-    # --------------------------
-
-    apagados = tabla[
-        tabla[
-            "Estado"
-        ]
-        ==
-        "Apagado"
-    ]
-
-    if len(apagados):
-
-        recomendaciones.append(
-
-            f"{len(apagados)} equipo(s) "
-            f"quedaron fuera del límite energético."
-
-        )
-
-    # --------------------------
-    # Aprovechamiento
-    # --------------------------
-
-    total = tabla[
-        consumo_col
-    ].sum()
-
-    if total < 3000:
-
-        recomendaciones.append(
-
-            "El consumo total es bajo. "
-            "Existe margen disponible."
-
-        )
-
-    elif total > 10000:
-
-        recomendaciones.append(
-
-            "Consumo alto. "
-            "Conviene revisar hábitos."
-
-        )
-
-    return recomendaciones
-
-
-# ==========================
-# SCORE EFICIENCIA
-# ==========================
-
-def score_eficiencia(
-    tabla
-):
-
-    total = tabla[
-        "Consumo Diario"
-    ].sum()
-
-    if total < 3000:
-
-        return (
-            90,
-            "Excelente"
-        )
-
-    elif total < 6000:
-
-        return (
-            75,
-            "Buena"
-        )
-
-    elif total < 10000:
-
-        return (
-            55,
-            "Media"
-        )
-
-    else:
-
-        return (
-            35,
-            "Mejorable"
-        )
-        from io import BytesIO
-from datetime import datetime
-
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer
-)
-
-from reportlab.lib.styles import (
-    getSampleStyleSheet
-)
-
-from reportlab.lib import colors
-
-
-# ==========================
-# PDF
-# ==========================
-
-def generar_pdf(
-    tabla,
-    costos
-):
-
-    buffer = BytesIO()
-
-    doc = SimpleDocTemplate(
-        buffer
-    )
-
-    estilos = (
-        getSampleStyleSheet()
-    )
-
-    contenido = []
-
-    # ------------------
-    # TITULO
-    # ------------------
-
-    contenido.append(
-
-        Paragraph(
-
-            "Informe Energético",
-
-            estilos[
-                "Title"
-            ]
-
-        )
-
-    )
-
-    contenido.append(
-
-        Spacer(
-            1,
-            20
-        )
-
-    )
-
-    contenido.append(
-
-        Paragraph(
-
-            (
-                "Fecha: "
-                +
-                datetime
-                .now()
-                .strftime(
-                    "%d/%m/%Y"
-                )
-            ),
-
-            estilos[
-                "Normal"
-            ]
-
-        )
-
-    )
-
-    contenido.append(
-
-        Spacer(
-            1,
-            20
-        )
-
-    )
-
-    # ------------------
-    # COSTOS
-    # ------------------
-
-    contenido.append(
-
-        Paragraph(
-
-            "Resumen Económico",
-
-            estilos[
-                "Heading1"
-            ]
-
-        )
-
-    )
-
-    contenido.append(
-
-        Paragraph(
-
-            (
-                f"Costo diario: {costos['dia']}<br/>"
-                f"Costo mensual: {costos['mes']}<br/>"
-                f"Costo anual: {costos['anio']}"
-            ),
-
-            estilos[
-                "Normal"
-            ]
-
-        )
-
-    )
-
-    contenido.append(
-
-        Spacer(
-            1,
-            25
-        )
-
-    )
-
-    # ------------------
-    # TABLA
-    # ------------------
-
-    contenido.append(
-
-        Paragraph(
-
-            "Detalle por Equipo",
-
-            estilos[
-                "Heading1"
-            ]
-
-        )
-
-    )
-
-    datos = [
-
-        list(
-            tabla.columns
-        )
-
-    ]
-
-    datos.extend(
-
-        tabla
-        .values
-        .tolist()
-
-    )
-
-    tabla_pdf = Table(
-        datos
-    )
-
-    tabla_pdf.setStyle(
-
-        TableStyle([
-
-            (
-                "BACKGROUND",
-                (0,0),
-                (-1,0),
-                colors.darkblue
-            ),
-
-            (
-                "TEXTCOLOR",
-                (0,0),
-                (-1,0),
-                colors.white
-            ),
-
-            (
-                "GRID",
-                (0,0),
-                (-1,-1),
-                1,
-                colors.black
-            ),
-
-            (
-                "PADDING",
-                (0,0),
-                (-1,-1),
-                8
-            ),
-
-            (
-                "VALIGN",
-                (0,0),
-                (-1,-1),
-                "TOP"
+            activos = np.round(
+                res.x
             )
 
-        ])
+            usados = [
 
-    )
+                c*a
 
-    contenido.append(
-        tabla_pdf
-    )
+                for c,a
 
-    contenido.append(
+                in zip(
+                    consumos,
+                    activos
+                )
 
-        Spacer(
-            1,
-            30
-        )
-
-    )
-
-    # ------------------
-    # PIE
-    # ------------------
-
-    contenido.append(
-
-        Paragraph(
-
-            (
-                "Este reporte fue generado "
-                "automáticamente."
-            ),
-
-            estilos[
-                "Italic"
             ]
 
+            energia_usada = sum(
+                usados
+            )
+
+            tabla = pd.DataFrame({
+
+                "Equipo":
+                nombres,
+
+                "Consumo Diario (Wh)":
+                consumos,
+
+                "Estado":[
+
+                    "Encendido"
+
+                    if x
+
+                    else "Apagado"
+
+                    for x
+
+                    in activos
+
+                ]
+
+            })
+
+            tabla = tabla[
+                tabla["Equipo"]
+                != ""
+            ]
+
+            tabla = tabla.reset_index(
+                drop=True
+            )
+
+            tabla[
+                "Consumo Mensual (Wh)"
+            ] = (
+                tabla[
+                    "Consumo Diario (Wh)"
+                ] * 30
+            )
+
+            m1,m2,m3=st.columns(3)
+
+            with m1:
+
+                st.metric(
+                    "Diario",
+                    f"{energia_usada:.0f} Wh"
+                )
+
+            with m2:
+
+                st.metric(
+                    "Mensual",
+                    f"{tabla['Consumo Mensual (Wh)'].sum():.0f} Wh"
+                )
+
+            with m3:
+
+                st.metric(
+                    "Uso",
+                    f"{energia_usada/energia:.0%}"
+                )
+
+            st.subheader(
+                "Informe"
+            )
+
+            st.dataframe(
+
+                tabla,
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+            # gráfico
+
+            fig = px.line(
+
+                tabla,
+
+                x="Equipo",
+
+                y="Consumo Diario (Wh)",
+
+                markers=True
+
+            )
+
+            fig.update_layout(
+                height=300
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+            # ======================
+            # PDF
+            # ======================
+
+            def crear_pdf(df):
+
+                buffer = BytesIO()
+
+                doc = SimpleDocTemplate(
+                    buffer
+                )
+
+                estilos = (
+                    getSampleStyleSheet()
+                )
+
+                contenido=[]
+
+                contenido.append(
+
+                    Paragraph(
+
+                        "Informe Mensual",
+
+                        estilos["Title"]
+
+                    )
+
+                )
+
+                contenido.append(
+                    Spacer(
+                        1,
+                        20
+                    )
+                )
+
+                datos = [
+
+                    list(
+                        df.columns
+                    )
+
+                ]
+
+                datos.extend(
+                    df.values.tolist()
+                )
+
+                tabla_pdf = Table(
+                    datos
+                )
+
+                tabla_pdf.setStyle(
+
+                    TableStyle([
+
+                        (
+                            "GRID",
+
+                            (0,0),
+
+                            (-1,-1),
+
+                            1,
+
+                            colors.black
+
+                        )
+
+                    ])
+
+                )
+
+                contenido.append(
+                    tabla_pdf
+                )
+
+                doc.build(
+                    contenido
+                )
+
+                buffer.seek(0)
+
+                return buffer
+
+            pdf = crear_pdf(
+                tabla
+            )
+
+            st.download_button(
+
+                "📄 Descargar PDF",
+
+                pdf,
+
+                file_name="reporte_consumo.pdf",
+
+                mime="application/pdf"
+
+            )
+
+        else:
+
+            st.warning(
+                "No existe combinación válida."
+            )
+
+    except Exception as e:
+
+        st.error(
+            str(e)
         )
-
-    )
-
-    # construir
-
-    doc.build(
-        contenido
-    )
-
-    buffer.seek(
-        0
-    )
-
-    return buffer
-    
