@@ -4,74 +4,54 @@ import numpy as np
 import plotly.express as px
 from scipy.optimize import milp, LinearConstraint, Bounds
 
-# ==================
+# ======================
 # CONFIG
-# ==================
+# ======================
 
 st.set_page_config(
     page_title="Consumo Energético",
-    layout="centered"
+    layout="wide"
 )
 
-# ==================
-# FONDO DINÁMICO
-# ==================
+st.title("⚡ Consumo Energético del Lugar")
 
-def fondo(consumo):
+# ======================
+# CONFIG GENERAL
+# ======================
 
-    rojo = int(255 * consumo)
-    verde = int(255 * (1 - consumo))
+c1, c2, c3 = st.columns(3)
 
-    st.markdown(f"""
-    <style>
+with c1:
+    energia = st.number_input(
+        "Energía disponible (Wh)",
+        value=12000
+    )
 
-    .stApp {{
-        background:
-        rgb(
-            {255-rojo},
-            {verde},
-            220
-        );
+with c2:
+    cantidad = st.number_input(
+        "Cantidad de aparatos",
+        min_value=1,
+        value=6
+    )
 
-        transition:1s;
-    }}
+with c3:
+    st.metric(
+        "Modo",
+        "Automático"
+    )
 
-    </style>
-    """, unsafe_allow_html=True)
-
-
-# ==================
-# TÍTULO
-# ==================
-
-st.title("⚡ Consumo de Energía por Aparatos")
-
-st.caption(
-    "Ingresá los aparatos del lugar y el sistema calcula automáticamente."
-)
-
-energia = st.number_input(
-    "Energía disponible (Wh)",
-    value=12000
-)
-
-cantidad = st.number_input(
-    "Cantidad de aparatos",
-    min_value=1,
-    value=5
-)
-
-# ==================
+# ======================
 # APARATOS
-# ==================
+# ======================
 
 ejemplos = [
 
-    ["Heladera",150,24,10],
-    ["Luces",80,8,8],
-    ["Microondas",1200,1,6],
-    ["Televisor",120,5,7],
-    ["Aire acondicionado",1500,6,9]
+["Heladera",150,24,10],
+["Luces",80,8,8],
+["Microondas",1200,1,6],
+["Televisor",120,5,7],
+["Aire acondicionado",1500,6,9],
+["Notebook",90,8,7]
 
 ]
 
@@ -81,66 +61,82 @@ prioridades=[]
 
 st.subheader("Equipamiento")
 
+# 3 columnas visuales
+columnas = st.columns(3)
+
 for i in range(cantidad):
 
-    with st.expander(
-        f"Aparato {i+1}",
-        expanded=i < 3
-    ):
+    col = columnas[i % 3]
+
+    with col:
+
+        st.markdown(
+            f"**Aparato {i+1}**"
+        )
 
         nombre = st.text_input(
             "Nombre",
-            value=ejemplos[i][0]
-            if i < len(ejemplos)
-            else f"Aparato {i+1}"
+            value=(
+                ejemplos[i][0]
+                if i < len(ejemplos)
+                else f"Aparato {i+1}"
+            ),
+            key=f"n{i}"
         )
 
         cantidad_ap = st.number_input(
             "Cantidad",
             value=1,
-            key=f"cant{i}"
+            key=f"c{i}"
         )
 
         watts = st.number_input(
             "Consumo (W)",
-            value=ejemplos[i][1]
-            if i < len(ejemplos)
-            else 100,
+            value=(
+                ejemplos[i][1]
+                if i < len(ejemplos)
+                else 100
+            ),
             key=f"w{i}"
         )
 
-        horas = st.slider(
-            "Horas de uso",
-            1,
-            24,
-            ejemplos[i][2]
-            if i < len(ejemplos)
-            else 8,
+        horas = st.number_input(
+            "Horas",
+            value=(
+                ejemplos[i][2]
+                if i < len(ejemplos)
+                else 8
+            ),
             key=f"h{i}"
         )
 
         prioridad = st.slider(
-            "Importancia",
+            "Prioridad",
             1,
             10,
-            ejemplos[i][3]
-            if i < len(ejemplos)
-            else 5,
+            (
+                ejemplos[i][3]
+                if i < len(ejemplos)
+                else 5
+            ),
             key=f"p{i}"
         )
 
-        energia_ap = cantidad_ap * watts * horas
+        consumo = (
+            cantidad_ap
+            * watts
+            * horas
+        )
 
         nombres.append(nombre)
-        consumos.append(energia_ap)
-
+        consumos.append(consumo)
         prioridades.append(prioridad)
 
-# ==================
-# OPTIMIZACIÓN
-# ==================
+# ======================
+# OPTIMIZACIÓN AUTOMÁTICA
+# ======================
 
-c = [-p for p in prioridades]
+c = [-x for x in prioridades]
 
 A = [consumos]
 
@@ -162,23 +158,44 @@ res = milp(
     integrality=[1]*cantidad
 )
 
-# ==================
-# RESULTADO
-# ==================
+# ======================
+# RESULTADOS
+# ======================
+
+st.divider()
 
 if res.success:
 
     activos = np.round(res.x)
 
-    usado = sum(
-        c*v
-        for c,v
-        in zip(consumos,activos)
+    energia_usada = sum(
+        e*a
+        for e,a
+        in zip(
+            consumos,
+            activos
+        )
     )
 
-    fondo(
-        usado/energia
-    )
+    r1, r2, r3 = st.columns(3)
+
+    with r1:
+        st.metric(
+            "Energía usada",
+            f"{energia_usada:.0f} Wh"
+        )
+
+    with r2:
+        st.metric(
+            "Disponible",
+            f"{energia-energia_usada:.0f} Wh"
+        )
+
+    with r3:
+        st.metric(
+            "Uso",
+            f"{energia_usada/energia:.0%}"
+        )
 
     tabla = pd.DataFrame({
 
@@ -186,24 +203,16 @@ if res.success:
 
         "Consumo": consumos,
 
-        "Activo": [
-            "Sí"
+        "Estado": [
+
+            "Encendido"
             if x
-            else "No"
+            else "Apagado"
+
             for x in activos
         ]
 
     })
-
-    st.metric(
-        "Energía utilizada",
-        f"{usado:.0f} Wh"
-    )
-
-    st.metric(
-        "Disponibilidad",
-        f"{100*(1-usado/energia):.0f}%"
-    )
 
     st.dataframe(
         tabla,
@@ -211,15 +220,11 @@ if res.success:
         use_container_width=True
     )
 
-    # GRÁFICO PUNTO A PUNTO
-
-    graf = tabla.copy()
-
-    graf["Consumo"] = graf["Consumo"].astype(float)
+    # gráfico punto a punto
 
     fig = px.line(
 
-        graf,
+        tabla,
 
         x="Aparato",
 
@@ -231,9 +236,16 @@ if res.success:
 
     fig.update_layout(
 
-        height=350,
+        height=300,
 
-        transition_duration=600
+        margin=dict(
+            l=10,
+            r=10,
+            t=30,
+            b=10
+        ),
+
+        transition_duration=400
 
     )
 
