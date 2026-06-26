@@ -1,7 +1,5 @@
 streamlit
-numpy
 pandas
+numpy
 scipy
-plotly
-reportlab
-openpyxl
+matplotlib
