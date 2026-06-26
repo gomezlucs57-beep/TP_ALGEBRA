@@ -1,322 +1,226 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 from scipy.optimize import milp, LinearConstraint, Bounds
+import matplotlib.pyplot as plt
 
-from analytics import (
-    calcular_costos,
-    generar_historial
-)
-
-from recommendations import (
-    generar_recomendaciones
-)
-
-from pdf_report import (
-    generar_pdf
-)
+# ==========================
+# CONFIGURACIÓN
+# ==========================
 
 st.set_page_config(
-    page_title="Gestión Energética",
-    layout="wide"
+    page_title="Distribución de Energía",
+    layout="centered"
 )
 
-st.title("⚡ Gestión Energética Inteligente")
+st.title("⚡ Optimización de Distribución de Energía")
 
-# --------------------
-# CONFIG
-# --------------------
+st.caption(
+    "Ingresá los parámetros y el sistema calculará automáticamente la mejor distribución."
+)
+
+# ==========================
+# ENERGÍA TOTAL
+# ==========================
+
+energia_total = st.number_input(
+    "Energía disponible",
+    min_value=0,
+    value=1200,
+    help="Cantidad total de energía para repartir."
+)
+
+# ==========================
+# RENDIMIENTO
+# ==========================
+
+st.subheader("Rendimiento por unidad de energía")
 
 c1, c2, c3 = st.columns(3)
 
 with c1:
-
-    energia = st.number_input(
-        "Energía disponible (Wh)",
-        value=12000
+    rendimiento_procesamiento = st.number_input(
+        "Procesamiento de Datos",
+        value=10
     )
 
 with c2:
-
-    precio = st.number_input(
-        "Precio kWh",
-        value=150.0
+    rendimiento_comunicaciones = st.number_input(
+        "Comunicaciones",
+        value=8
     )
 
 with c3:
-
-    cantidad = st.number_input(
-        "Cantidad equipos",
-        value=6,
-        min_value=1
+    rendimiento_almacenamiento = st.number_input(
+        "Almacenamiento",
+        value=6
     )
 
-# --------------------
-# EQUIPOS
-# --------------------
+# ==========================
+# RESTRICCIONES
+# ==========================
 
-equipos = [
+with st.expander("Configuración avanzada"):
 
-("Heladera",150,24,10),
-("Luces",80,8,8),
-("Microondas",1200,1,6),
-("Televisor",120,5,7),
-("Aire acondicionado",1500,6,9),
-("Notebook",90,8,7)
+    st.markdown("### Energía mínima requerida")
 
-]
+    c1, c2, c3 = st.columns(3)
 
-nombres=[]
-consumos=[]
-prioridades=[]
-
-st.subheader("Equipamiento")
-
-cols = st.columns(3)
-
-for i in range(int(cantidad)):
-
-    with cols[i % 3]:
-
-        base = (
-            equipos[i]
-            if i < len(equipos)
-            else (
-                f"Equipo {i+1}",
-                100,
-                8,
-                5
-            )
+    with c1:
+        min_procesamiento = st.number_input(
+            "Procesamiento",
+            value=250
         )
 
-        with st.expander(
-            f"⚙️ {base[0]}"
-        ):
+    with c2:
+        min_comunicaciones = st.number_input(
+            "Comunicaciones",
+            value=200
+        )
 
-            nombre = st.text_input(
-                "Equipo",
-                value=base[0],
-                key=f"n{i}"
-            )
+    with c3:
+        min_almacenamiento = st.number_input(
+            "Almacenamiento",
+            value=150
+        )
 
-            cantidad_ap = st.number_input(
-                "Cantidad",
-                1,
-                key=f"c{i}"
-            )
-
-            watts = st.number_input(
-                "W",
-                value=base[1],
-                key=f"w{i}"
-            )
-
-            horas = st.slider(
-                "Horas",
-                1,
-                24,
-                base[2],
-                key=f"h{i}"
-            )
-
-            prioridad = st.slider(
-                "Prioridad",
-                1,
-                10,
-                base[3],
-                key=f"p{i}"
-            )
-
-            consumo = (
-                cantidad_ap
-                *
-                watts
-                *
-                horas
-            )
-
-            st.metric(
-                "Wh diarios",
-                f"{consumo}"
-            )
-
-            nombres.append(
-                nombre
-            )
-
-            consumos.append(
-                consumo
-            )
-
-            prioridades.append(
-                prioridad
-            )
-
-# --------------------
-# OPTIMIZACIÓN
-# --------------------
-
-c = [-x for x in prioridades]
-
-constraints = LinearConstraint(
-    [consumos],
-    [-np.inf],
-    [energia]
-)
-
-bounds = Bounds(
-    [0]*len(consumos),
-    [1]*len(consumos)
-)
-
-res = milp(
-    c=c,
-    constraints=constraints,
-    bounds=bounds,
-    integrality=[1]*len(consumos)
-)
-
-if res.success:
-
-    activos = np.round(
-        res.x
+    max_procesamiento = st.number_input(
+        "Máximo permitido para Procesamiento",
+        value=600
     )
 
-    usados = [
+    porcentaje = st.slider(
+        "Comunicaciones debe recibir al menos este porcentaje respecto a Procesamiento",
+        0,
+        100,
+        40
+    )
 
-        e*a
+factor = porcentaje / 100
 
-        for e,a
 
-        in zip(
-            consumos,
-            activos
-        )
+# ==========================
+# CÁLCULO
+# ==========================
+
+if st.button("Calcular distribución óptima", use_container_width=True):
+
+    c = [
+        -rendimiento_procesamiento,
+        -rendimiento_comunicaciones,
+        -rendimiento_almacenamiento
+    ]
+
+    matriz = [
+
+        [1, 1, 1],
+        [factor, -1, 0]
 
     ]
 
-    total = sum(
-        usados
+    bl = [
+        -np.inf,
+        -np.inf
+    ]
+
+    bu = [
+        energia_total,
+        0
+    ]
+
+    constraints = LinearConstraint(
+        matriz,
+        bl,
+        bu
     )
 
-    tabla = pd.DataFrame({
+    bounds = Bounds(
+        [
+            min_procesamiento,
+            min_comunicaciones,
+            min_almacenamiento
+        ],
+        [
+            max_procesamiento,
+            np.inf,
+            np.inf
+        ]
+    )
 
-        "Equipo":
-        nombres,
+    resultado = milp(
+        c=c,
+        constraints=constraints,
+        bounds=bounds,
+        integrality=[0, 0, 0]
+    )
 
-        "Consumo Diario":
-        consumos,
+    if resultado.success:
 
-        "Estado":[
+        procesamiento = resultado.x[0]
+        comunicaciones = resultado.x[1]
+        almacenamiento = resultado.x[2]
 
-            "Activo"
+        st.success("Distribución calculada")
 
-            if x
+        st.metric(
+            "Rendimiento máximo obtenido",
+            f"{-resultado.fun:.0f}"
+        )
 
-            else "Apagado"
+        st.subheader("Asignación recomendada")
 
-            for x
+        tabla = pd.DataFrame({
+            "Subsistema": [
+                "Procesamiento de Datos",
+                "Comunicaciones",
+                "Almacenamiento"
+            ],
+            "Energía Asignada": [
+                round(procesamiento),
+                round(comunicaciones),
+                round(almacenamiento)
+            ]
+        })
 
-            in activos
+        st.dataframe(
+            tabla,
+            hide_index=True,
+            use_container_width=True
+        )
 
+        # GRÁFICO MÁS SIMPLE
+
+        fig, ax = plt.subplots(
+            figsize=(8, 3)
+        )
+
+        nombres = [
+            "Procesamiento",
+            "Comunicaciones",
+            "Almacenamiento"
         ]
 
-    })
+        valores = [
+            procesamiento,
+            comunicaciones,
+            almacenamiento
+        ]
 
-    tabla = tabla[
-        tabla["Equipo"]
-        .str.strip()
-        != ""
-    ]
-
-    costo = calcular_costos(
-        total,
-        precio
-    )
-
-    st.divider()
-
-    a,b,c = st.columns(3)
-
-    a.metric(
-        "Diario",
-        costo["dia"]
-    )
-
-    b.metric(
-        "Mensual",
-        costo["mes"]
-    )
-
-    c.metric(
-        "Anual",
-        costo["anio"]
-    )
-
-    st.subheader(
-        "Resumen"
-    )
-
-    st.dataframe(
-        tabla,
-        use_container_width=True
-    )
-
-    fig = px.line(
-
-        tabla,
-
-        x="Equipo",
-
-        y="Consumo Diario",
-
-        markers=True
-
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    st.subheader(
-        "Historial"
-    )
-
-    hist = generar_historial(
-        total
-    )
-
-    st.line_chart(
-        hist
-    )
-
-    st.subheader(
-        "Recomendaciones"
-    )
-
-    for r in generar_recomendaciones(
-        tabla
-    ):
-
-        st.info(
-            r
+        ax.barh(
+            nombres,
+            valores
         )
 
-    pdf = generar_pdf(
-        tabla,
-        costo
-    )
+        ax.set_xlabel(
+            "Unidades de energía"
+        )
 
-    st.download_button(
+        plt.tight_layout()
 
-        "📄 Descargar PDF",
+        st.pyplot(fig)
 
-        pdf,
+    else:
 
-        "reporte.pdf"
-
-    )
-```
+        st.error(
+            "No existe una solución válida con esos parámetros."
+        )
